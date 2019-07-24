@@ -42,6 +42,37 @@ class TFSaveOp(Op):
     def __init__(self, name):
         super(TFSaveOp, self).__init__(name)
 
+class TFIsVariableInitializedOp(Op):
+    ''' A designated op type for Tensorflow variable handling ops.
+        We will remove these if possible.
+    '''
+    def __init__(self, name):
+        super(TFIsVariableInitializedOp, self).__init__(name)
+
+class TFAssertOp(Op):
+    ''' A designated op type for Tensorflow error checking.
+        We will remove these if possible.
+    '''
+    def __init__(self, name):
+        super(TFAssertOp, self).__init__(name)
+
+# NOTE: In TF ~1.10-1.13, functionality was added to clearly delineate
+# variable assignments from variable reads, making it clearer how to
+# order forward, backward prop and gradient updates
+class TFVarHandleOp(Op):
+    ''' A designated op type for Tensorflow variable handles.
+        We will remove these if possible.
+    '''
+    def __init__(self, name):
+        super(TFVarHandleOp, self).__init__(name)
+
+class TFReadVariableOp(Op):
+    ''' A designated op type for Tensorflow variable read.
+        We will remove these if possible.
+    '''
+    def __init__(self, name):
+        super(TFReadVariableOp, self).__init__(name)
+
 
 TF_OP_TO_CATAMOUNT = {
     'Add': AddOp,
@@ -51,9 +82,11 @@ TF_OP_TO_CATAMOUNT = {
     'Any': ReduceOp,
     'ApplyGradientDescent': ApplyGradientDescentOp,
     'ApplyMomentum': ApplyMomentumOp,
+    'Assert': TFAssertOp,
     'Assign': AssignOp,
     'AssignAdd': AddOp, # Here, TF reuses the input tensor for output
     'AssignSub': SubOp, # Here, TF reuses the input tensor for output
+    'AssignVariableOp': AssignOp,
     'BatchMatMul': BatchMatMulOp,
     'BiasAdd': AddOp, # Here, TF special-case for 1D bias input
     'BiasAddGrad': ReduceOp, # Here, TF special-case to backprop bias
@@ -87,6 +120,7 @@ TF_OP_TO_CATAMOUNT = {
     'Identity': IdentityOp,
     'InTopKV2': InTopKOp,
     'InvertPermutation': InvertPermutationOp,
+    'IsVariableInitialized': TFIsVariableInitializedOp,
     'Less': LessOp,
     'LessEqual': LessEqualOp,
     'ListDiff': ListDiffOp,
@@ -134,6 +168,7 @@ TF_OP_TO_CATAMOUNT = {
     'RandomStandardNormal': RandomInitializerOp,
     'Range': RangeOp,
     'Rank': RankOp,
+    'ReadVariableOp': TFReadVariableOp,
     'RealDiv': BasePointwiseOp,
     'Reciprocal': ReciprocalOp,
     'Relu': ReluOp,
@@ -141,6 +176,7 @@ TF_OP_TO_CATAMOUNT = {
     'Reduce': ReduceOp,
     'RefEnter': EnterOp,
     'Reshape': ReshapeOp,
+    'ResourceApplyGradientDescent': ApplyGradientDescentOp,
     'RestoreV2': TFRestoreOp, # Identify Restore ops for removal
     'ReverseSequence': ReverseSequenceOp,
     'Rsqrt': RsqrtOp,
@@ -182,6 +218,8 @@ TF_OP_TO_CATAMOUNT = {
     'Unpack': UnpackOp,
     'UnsortedSegmentSum': UnsortedSegmentSumOp,
     'VariableV2': VariableOp,
+    'VarHandleOp': TFVarHandleOp,
+    'VarIsInitializedOp': TFIsVariableInitializedOp,
     'Where': WhereOp,
     'ZerosLike': NumLikeOp,
 }
@@ -200,9 +238,8 @@ TF_OP_TO_CATAMOUNT_REDUCE = {
 }
 
 # TODO (Joel): Prioritize these ops:
-# -- NMT
-# -- Speech
-# -- Others
+# -- From common models:
+# AvgPool
 
 # TODO (Joel): These are required for accurate counts, but we can hack
 # TensorArrayGatherV3 # Same shape output as TensorArray input
@@ -213,12 +250,6 @@ TF_OP_TO_CATAMOUNT_REDUCE = {
 # TensorArrayWriteV3
 # QueueDequeueV2
 # QueueEnqueueV2
-# Stack
-# StackPop
-# StackPopV2 # Same shape output as StackPush input
-# StackPush
-# StackPushV2
-# StackV2
 
 # TODO (Joel): Low priority. Counts are accurate without
 # Assert
@@ -598,34 +629,55 @@ def construct_catamount_graph(tf_sess, tf_graph):
             cons_op.setStack(stack_op.getStack())
             assert(cons_op.getStack() is not None)
 
-    # Remove TF variable initialization (Assign) ops
-    # These are not necessary to fully specify the graph
-    assign_ops = set()
+    # Traverse the graph to remove Tensorflow-specific ops:
+    # 1) Assertions (TFAssert), prints
+    # 2) Checks for whether variables are initialized
+    #    (TFIsVariableInitializedOp)
+    ops_to_remove = set()
     for op in graph.opsByName.values():
-        if isinstance(op, AssignOp):
-            assign_ops.add(op)
-    op_types = set()
-    for assign_op in assign_ops:
-        assert isinstance(assign_op.inputs[0].producer, VariableOp)
-        # assert isinstance(assign_op.inputs[1].producer, ConstantOp)
-        my_ancestors = set()
-        my_frontier = set()
-        my_frontier.add(assign_op)
-        while len(my_frontier) > 0:
-            next_op = my_frontier.pop()
-            for in_tensor in next_op.inputs:
-                if not isinstance(in_tensor.producer, VariableOp):
-                    my_frontier.add(in_tensor.producer)
-            my_ancestors.add(next_op)
-            if len(my_ancestors) > 100:
-                break
-        if len(my_ancestors) <= 8:
-            op_types.update(set(type(op) for op in my_ancestors))
-            for next_op in my_ancestors:
-                graph.removeOp(next_op)
-        else:
-            print('WARN: Unable to remove: {}'.format(assign_op.debugString()))
-            print('    COUNT: {}'.format(len(my_ancestors)))
+        if isinstance(op, (TFAssertOp, TFIsVariableInitializedOp)):
+            ops_to_remove.add(op)
+    for op in ops_to_remove:
+        graph.removeOp(op)
+    assert graph.isValid()
+
+    # Convert VarHandleOp+ReadVariableOp into variable ops:
+    # 1) Identify all TFVarHandleOps
+    # 2) All should have a downstream TFReadVariableOps, AssignOp,
+    #    and ApplyGradientDescentOp
+    # 3) Replace these 3 ops with a single VariableOp
+    var_handle_ops = set()
+    for op in graph.opsByName.values():
+        if isinstance(op, TFVarHandleOp):
+            var_handle_ops.add(op)
+    ops_to_remove = set()
+    for vh_op in var_handle_ops:
+        assert len(vh_op.outputs) == 1
+        readvar_op = None
+        for cons_op in vh_op.outputs[0].consumers.values():
+            if isinstance(cons_op, TFReadVariableOp):
+                assert readvar_op == None
+                readvar_op = cons_op
+        new_var_op = VariableOp(name=vh_op.name)
+        out_tens = readvar_op.outputs[0]
+        out_tens._producer = None
+        out_tens._name = '{}:0'.format(vh_op.name)
+        new_var_op.addOutput(out_tens)
+        consumer_ops = list(vh_op.outputs[0].consumers.values())
+        for cons_op in consumer_ops:
+            assert isinstance(cons_op, (TFReadVariableOp, AssignOp,
+                                        ApplyGradientDescentOp))
+            if isinstance(cons_op, (TFReadVariableOp)):
+                graph.removeOp(cons_op)
+            else:
+                for idx, in_tens in enumerate(cons_op.inputs):
+                    if in_tens.producer == vh_op:
+                        cons_op.inputs[idx] = out_tens
+                        out_tens.addConsumer(cons_op)
+        # Remove VarHandleOp
+        graph.removeOp(vh_op)
+        # Add new variable op to graph
+        graph.addOp(new_var_op)
     assert graph.isValid()
 
     # Remove any Tensorflow model saver ops from the graph. These ops
@@ -831,3 +883,4 @@ def construct_catamount_graph(tf_sess, tf_graph):
         graph.addOp(ctrl_block_op)
 
     return graph
+
