@@ -1222,6 +1222,11 @@ class TransposeOp(Op):
             out_dims.append(in_dims[idx])
         self._outputs[0].mergeShape(out_dims,
                                     make_symbolic=make_symbolic)
+        if self._inputs[0].value is not None and \
+           self._inputs[1].value is not None:
+            out_val = np.transpose(self._inputs[0].value,
+                                   self._inputs[1].value)
+            self._outputs[0].setValue(out_val)
 
     def calcAlgFlops(self):
         # TransposeOps have no Flops
