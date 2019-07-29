@@ -322,6 +322,12 @@ class ReluGradOp(BasePointwiseOp):
         # ReluGrad just makes a single comparison
 
 
+class RoundOp(BasePointwiseOp):
+    def __init__(self, name):
+        super(RoundOp, self).__init__(name)
+        # Rounding assumed 1 Flop per element
+
+
 class RsqrtOp(BasePointwiseOp):
     def __init__(self, name):
         super(RsqrtOp, self).__init__(name)

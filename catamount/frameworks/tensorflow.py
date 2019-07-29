@@ -88,6 +88,7 @@ TF_OP_TO_CATAMOUNT = {
     'AssignSub': SubOp, # Here, TF reuses the input tensor for output
     'AssignVariableOp': AssignOp,
     'BatchMatMul': BatchMatMulOp,
+    'BatchMatMulV2': BatchMatMulOp,
     'BiasAdd': AddOp, # Here, TF special-case for 1D bias input
     'BiasAddGrad': ReduceOp, # Here, TF special-case to backprop bias
     'BroadcastGradientArgs': BroadcastGradientArgsOp,
@@ -179,6 +180,8 @@ TF_OP_TO_CATAMOUNT = {
     'ResourceApplyGradientDescent': ApplyGradientDescentOp,
     'RestoreV2': TFRestoreOp, # Identify Restore ops for removal
     'ReverseSequence': ReverseSequenceOp,
+    'ReverseV2': ReverseSequenceOp,
+    'Round': RoundOp,
     'Rsqrt': RsqrtOp,
     'RsqrtGrad': RsqrtGradOp,
     'SaveV2': TFSaveOp, # Identify Saver ops for removal
