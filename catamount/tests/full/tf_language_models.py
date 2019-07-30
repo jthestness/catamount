@@ -152,62 +152,6 @@ def run_tf_language_model(domain=None, build_projection=False):
     else:
         raise NotImplementedError('ERROR: Unknown domain: {}'.format(domain))
 
-    # HAXXX: Manually setting TensorArray shapes!
-    if domain == 'wordlm' or domain == 'charlm' or domain == 'nmt':
-        for op in graph._ops_by_name.values():
-            op_name_suffix = op.name.split('/')[-1]
-            if 'TensorArrayGather' in op_name_suffix:
-                assert isinstance(op, UnknownOp)
-                assert len(op._inputs) == 3
-                assert len(op._outputs) == 1
-                if domain == 'wordlm' or domain == 'charlm':
-                    assert op._outputs[0].shape.isUnknown() or \
-                           op._outputs[0].shape.rank == 3, \
-                           '{}'.format(op.name)
-                    gather_shape = [sequence_length_symbol,
-                                    subbatch_size_symbol,
-                                    hidden_dim_symbol]
-                else:
-                    assert domain == 'nmt'
-                    assert op._outputs[0].shape.isUnknown() or \
-                           op._outputs[0].shape.rank == 2 or \
-                           op._outputs[0].shape.rank == 3, \
-                           '{}'.format(op.name)
-                    if not op._outputs[0].shape.isUnknown():
-                        if op._outputs[0].shape.rank == 3:
-                            out_shape = [base_sequence_length,
-                                         base_subbatch_size,
-                                         base_hidden_dim]
-                            # Verify that the shape is clearly specified
-                            op._outputs[0].mergeShape(out_shape, make_symbolic=True)
-                            gather_shape = [sequence_length_symbol,
-                                            subbatch_size_symbol,
-                                            hidden_dim_symbol]
-                        else:
-                            # This TAGather is known to be unused, so who cares?!
-                            assert len(op._outputs[0].consumers) == 0
-                            continue
-                op._outputs[0].mergeShape(gather_shape, make_symbolic=True)
-            elif 'TensorArraySize' in op_name_suffix:
-                assert isinstance(op, UnknownOp)
-                assert len(op._inputs) == 2
-                assert len(op._outputs) == 1
-                assert op._outputs[0].shape.rank == 0
-                op._outputs[0].setValue(sequence_length_symbol)
-            elif 'TensorArrayRead' in op_name_suffix:
-                assert isinstance(op, UnknownOp)
-                assert len(op._inputs) == 3
-                assert len(op._outputs) == 1
-                assert op._outputs[0].shape.isUnknown() or \
-                       op._outputs[0].shape.rank == 2, \
-                       '{}'.format(op.name)
-                if not op._outputs[0].shape.isUnknown():
-                    assert op._outputs[0].shape.dims[1].value == base_hidden_dim
-                read_shape = [subbatch_size_symbol, hidden_dim_symbol]
-                op._outputs[0].mergeShape(read_shape, make_symbolic=True)
-    else:
-        raise NotImplementedError('ERROR: Unknown domain: {}'.format(domain))
-
     assert graph.isValid()
 
     if domain == 'wordlm':
