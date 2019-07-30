@@ -176,6 +176,12 @@ TF_OP_TO_CATAMOUNT = {
     'Tanh': TanhOp,
     'TanhGrad': TanhGradOp,
     'TensorArrayV3': TensorArrayOp,
+    'TensorArrayGatherV3': TensorArrayGatherOp,
+    'TensorArrayGradV3': TensorArrayGradOp,
+    'TensorArrayReadV3': TensorArrayReadOp,
+    'TensorArrayScatterV3': TensorArrayScatterOp,
+    'TensorArraySizeV3': TensorArraySizeOp,
+    'TensorArrayWriteV3': TensorArrayWriteOp,
     'Tile': TileOp,
     'Transpose': TransposeOp,
     'TruncatedNormal': RandomInitializerOp,
@@ -205,20 +211,8 @@ TF_OP_TO_CATAMOUNT_REDUCE = {
 # -- Others
 
 # TODO (Joel): These are required for accurate counts, but we can hack
-# TensorArrayGatherV3 # Same shape output as TensorArray input
-# TensorArrayGradV3
-# TensorArrayReadV3 # Same shape output as TensorArray input sliced on first dim
-# TensorArrayScatterV3
-# TensorArraySizeV3 # Input 1: Dim0 of tensor input to TensorArray
-# TensorArrayWriteV3
 # QueueDequeueV2
 # QueueEnqueueV2
-# Stack
-# StackPop
-# StackPopV2 # Same shape output as StackPush input
-# StackPush
-# StackPushV2
-# StackV2
 
 # TODO (Joel): Low priority. Counts are accurate without
 # Assert
@@ -368,6 +362,8 @@ def get_const_value_from_op(tf_sess, tf_op):
                 value = np.full(np_shape, value[0], dtype=float)
             else:
                 value = np.array(value)
+            if list(value.shape) != tf_op.outputs[0].shape.as_list():
+                value = np.reshape(value, tf_op.outputs[0].shape.as_list())
             assert list(value.shape) == tf_op.outputs[0].shape.as_list(), \
                 'Op: {}, value: {}'.format(tf_op.name, value)
     elif value_proto.dtype == types_pb2.DT_STRING:
@@ -495,6 +491,7 @@ def construct_catamount_graph(tf_sess, tf_graph):
     op_inputs = {}
     ctrl_frames = {}
     all_stack_ops = []
+    all_array_ops = []
     for tf_op in tf_graph._nodes_by_name.values():
         if tf_op.type in TF_OP_TO_CATAMOUNT.keys():
             # Map to Catamount op type
@@ -566,6 +563,8 @@ def construct_catamount_graph(tf_sess, tf_graph):
             ctrl_frames[frame_name].addEnterOp(op)
         elif isinstance(op, StackOp):
             all_stack_ops.append(op)
+        elif isinstance(op, TensorArrayOp):
+            all_array_ops.append(op)
 
         graph.addOp(op)
 
@@ -593,6 +592,43 @@ def construct_catamount_graph(tf_sess, tf_graph):
                 cons_op = cons_ops[0]
             cons_op.setStack(stack_op.getStack())
             assert(cons_op.getStack() is not None)
+
+    # Propagate array pointers for TensorArrayOps. These ops are always
+    # either the first or second downstream op from the TensorArrayOps. If
+    # they are the second downstream op, the first downstream op was an
+    # EnterOp for a loop/condition context.
+    for array_op in all_array_ops:
+        for out_tensor in array_op.outputs:
+            for cons_op in out_tensor.consumers.values():
+                if isinstance(cons_op, TensorArrayGradOp):
+                    assert len(cons_op.outputs) == 2
+                    for grad_cons_op in cons_op.outputs[0].consumers.values():
+                        if isinstance(grad_cons_op, BaseArrayOp):
+                            grad_cons_op.setArray(array_op.getArray())
+                        else:
+                            raise NotImplementedError(
+                                'Unknown TensorArrayGrad consumer: {}'
+                                .format(grad_cons_op.debugString()))
+                elif isinstance(cons_op, BaseArrayOp):
+                    cons_op.setArray(array_op.getArray())
+                else:
+                    assert isinstance(cons_op, EnterOp), \
+                           'Unknown TensorArray consumer: {}' \
+                           .format(cons_op.debugString())
+                    assert len(cons_op.outputs) == 1
+                    for ent_cons_op in cons_op.outputs[0].consumers.values():
+                        if isinstance(ent_cons_op, TensorArrayGradOp):
+                            for grad_cons_op in ent_cons_op.outputs[0].consumers.values():
+                                if isinstance(grad_cons_op, BaseArrayOp):
+                                    grad_cons_op.setArray(array_op.getArray())
+                                else:
+                                    raise NotImplementedError(
+                                        'Unknown TensorArrayGrad consumer: {}'
+                                        .format(grad_cons_op.debugString()))
+                        elif isinstance(ent_cons_op, BaseArrayOp):
+                            ent_cons_op.setArray(array_op.getArray())
+                        else:
+                            assert isinstance(ent_cons_op, MergeOp)
 
     # Remove any Tensorflow model saver ops from the graph. These ops
     # always occur as a series of 6 ops:

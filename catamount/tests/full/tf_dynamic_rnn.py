@@ -9,8 +9,6 @@ def test_tf_dynamic_rnn():
     graph = catamount.frameworks.tensorflow.import_graph(tf_example_filename)
     assert graph.isValid()
 
-    algorithmic_flops = graph.calcAlgFlops()
-
     rwb_iters = utils.getIntSymbolFromString('rnn/while/LoopCond_block::iters')
     ba_0 = utils.getIntSymbolFromString('rnn/while/basic_rnn_cell/BiasAdd:0::dim_0')
     mm_0 = utils.getIntSymbolFromString('rnn/while/basic_rnn_cell/MatMul:0::dim_0')
@@ -19,6 +17,9 @@ def test_tf_dynamic_rnn():
                         (24 * ba_0 + 2304 * mm_0 + 144 * th_0 + 5) + \
                         2305
 
+    print('\n\nFull graph:\n{}\n\n'.format(graph))
+
+    algorithmic_flops = graph.calcAlgFlops()
     print('Loaded Flops test:')
     print('    Catamount:   {}'.format(algorithmic_flops))
     print('    Correct: {}'.format(correct_alg_flops))

@@ -4,6 +4,7 @@ from ..api import utils
 
 # HACK: Remove me later
 from .stack_ops import StackPushOp
+from .tensor_array_ops import TensorArrayWriteOp, TensorArrayGatherOp
 
 
 class SubgraphOp(Op):
@@ -205,6 +206,16 @@ class SubgraphOp(Op):
             for out_tensor in sink_op.outputs:
                 for consumer in out_tensor.consumers.values():
                     to_return.add(out_tensor)
+        # --------------------------------------------------------------------
+        # HACK! If one of the ops outputs to a TensorArrayWriteOp that might
+        # feed a TensorArrayGather outside the subgraph, we need to add that
+        # op's output tensor to the outputs.
+        # TODO: This should be fixed by implementing control dependencies
+        for op in self._ops_by_name.values():
+            if isinstance(op, TensorArrayWriteOp) and op.parent == self:
+                downstream_gather_op = op._array._gather_op
+                to_return.add(downstream_gather_op.inputs[0])
+        # --------------------------------------------------------------------
         return list(to_return)
 
     def setContextFrame(self, context_frame):
@@ -305,6 +316,18 @@ class SubgraphOp(Op):
                         if hierarchical:
                             producer_op = out_tensor.producer
                             visited_ops.add(producer_op)
+                    # --------------------------------------------------------
+                    # HACK! TensorArrayGatherOps need to know that the
+                    # producer op's subgraph was executed
+                    if hierarchical and isinstance(consumer,
+                                                   TensorArrayGatherOp):
+                        if isinstance(next_op, SubgraphOp):
+                            write_in_op = consumer._array.getWriteOp()\
+                                                  .inputs[2].producer
+                            assert write_in_op.parent == next_op
+                            visited_ops.add(write_in_op)
+                            op_inputs_visited[consumer].add(write_in_op)
+                    # --------------------------------------------------------
                     op_inputs_visited[consumer].add(producer_op)
                     # Check if the consumer can now be visited, and if so,
                     # add it to the frontier
@@ -333,6 +356,22 @@ class SubgraphOp(Op):
                 if stack_pop_op.canVisit(op_inputs_visited[stack_pop_op]):
                     if not hierarchical or stack_pop_op.parent == self:
                         frontier_ops.add(stack_pop_op)
+            # ----------------------------------------------------------------
+            # ----------------------------------------------------------------
+            # HACK! TensorArrayWriteOps need to signal that the corresponding
+            # TensorArrayGatherOp may now be ready to visit. If so, add it to
+            # the frontier.
+            # TODO: Replace this check with control dependencies?
+            if not hierarchical and isinstance(next_op, TensorArrayWriteOp):
+                gather_op = next_op._array.getGatherOp()
+                self.debugAssert(gather_op not in visited_ops)
+                if gather_op not in op_inputs_visited:
+                    op_inputs_visited[gather_op] = set()
+                op_inputs_visited[gather_op].add(next_op.inputs[2].producer)
+                if gather_op.canVisit(op_inputs_visited[gather_op]):
+                    if not hierarchical or gather_op.parent == self:
+                        print('From {}, Adding gather_op {} to frontier!'.format(next_op.name, gather_op.name))
+                        frontier_ops.add(gather_op)
             # ----------------------------------------------------------------
         # print('Subgraph: {}'.format(self.name))
         # print('All ops: {}'.format(len(self._ops_by_name.keys())))
@@ -486,6 +525,14 @@ class SubgraphOp(Op):
         my_max_footprint = max_footprint
         my_curr_footprint = curr_footprint
         for op in ops_to_execute:
+            # ----------------------------------------------------------------
+            # HACK! Just to get past the visit check below
+            if isinstance(op, TensorArrayGatherOp):
+                write_in_op = op._array.getWriteOp().inputs[2].producer
+                if write_in_op not in my_visited_ops:
+                    assert write_in_op.parent in my_visited_ops
+                    my_visited_ops.add(write_in_op)
+            # ----------------------------------------------------------------
             self.debugAssert(op.canVisit(my_visited_ops),
                              'Unable to visit op {}, visited_ops: {}'
                              .format(op.name,

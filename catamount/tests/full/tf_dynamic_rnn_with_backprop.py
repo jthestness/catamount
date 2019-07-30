@@ -102,18 +102,6 @@ def test_tf_dynamic_rnn():
         'Initial alg flops incorrect!\n  Expecting: {}\n  Calculated: {}' \
         .format(correct_alg_flops, algorithmic_flops)
 
-    # Manually set some variables
-    # TODO (Joel): Fix this up when all tensor arrays work!
-    ta_op = graph.opsByName['rnn/TensorArrayStack/TensorArraySizeV3']
-    ta_op._outputs[0].setValue(seq_length)
-    ta_op = graph.opsByName['rnn/TensorArrayStack/TensorArrayGatherV3']
-    ta_op._outputs[0].mergeShape([seq_length, batch_size, hidden_dim], make_symbolic=True)
-    ta_op = graph.opsByName['rnn/while/TensorArrayReadV3']
-    ta_op._outputs[0].mergeShape([batch_size, hidden_dim], make_symbolic=True)
-
-    ta_op = graph.opsByName['Gradient/Compute/gradients/rnn/while/TensorArrayWrite/TensorArrayWriteV3_grad/TensorArrayReadV3']
-    ta_op._outputs[0].mergeShape([batch_size, hidden_dim], make_symbolic=True)
-
     # Bind constant values first
     const_dict = { # Store the shapes of certain tensors as constants
                    'rnn/Const': [hidden_dim],
@@ -264,8 +252,8 @@ def test_tf_dynamic_rnn():
     correct_min_footprint = 38153640
     error_percent = abs(correct_min_footprint - resolved_min_footprint) / correct_min_footprint
     if error_percent > 0.15:
-        print('Incorrect algorithmic footprint: {} (err: {})!'.format(resolved_min_footprint, error_percent))
-    print('Alg minimal footprint: {}\nWith specified dims: {} (err: {})\n'.format(alg_footprint, resolved_min_footprint, error_percent))
+        print('Incorrect algorithmic footprint: {} (err: {}, expected: {})!'.format(resolved_min_footprint, error_percent, correct_min_footprint))
+    print('Alg minimal footprint:\nWith specified dims: {} (err: {})\n'.format(resolved_min_footprint, error_percent))
 
     # Calculate algorithmic IO per step
     total_io_footprint = 0
