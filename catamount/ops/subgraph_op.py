@@ -322,11 +322,10 @@ class SubgraphOp(Op):
                     if hierarchical and isinstance(consumer,
                                                    TensorArrayGatherOp):
                         if isinstance(next_op, SubgraphOp):
-                            write_in_op = consumer._array.getWriteOp()\
-                                                  .inputs[2].producer
-                            assert write_in_op.parent == next_op
-                            visited_ops.add(write_in_op)
-                            op_inputs_visited[consumer].add(write_in_op)
+                            write_op = consumer._array.getWriteOp()
+                            assert write_op.parent == next_op
+                            visited_ops.add(write_op)
+                            op_inputs_visited[consumer].add(write_op)
                     # --------------------------------------------------------
                     op_inputs_visited[consumer].add(producer_op)
                     # Check if the consumer can now be visited, and if so,
@@ -367,7 +366,7 @@ class SubgraphOp(Op):
                 self.debugAssert(gather_op not in visited_ops)
                 if gather_op not in op_inputs_visited:
                     op_inputs_visited[gather_op] = set()
-                op_inputs_visited[gather_op].add(next_op.inputs[2].producer)
+                op_inputs_visited[gather_op].add(next_op)
                 if gather_op.canVisit(op_inputs_visited[gather_op]):
                     if not hierarchical or gather_op.parent == self:
                         print('From {}, Adding gather_op {} to frontier!'.format(next_op.name, gather_op.name))
@@ -526,12 +525,20 @@ class SubgraphOp(Op):
         my_curr_footprint = curr_footprint
         for op in ops_to_execute:
             # ----------------------------------------------------------------
-            # HACK! Just to get past the visit check below
+            # HACK! Hierarchical traversals don't have a way to fully check
+            # canVisit on TensorArrayGatherOps, because the associated Write
+            # op is usually in a different subgraph. Hack this just to get
+            # past the visit check below. This is a symptom that the traversal
+            # ordering is not well encapsulated...
+            # TODO(joel): Enforce this through control dependencies
             if isinstance(op, TensorArrayGatherOp):
-                write_in_op = op._array.getWriteOp().inputs[2].producer
-                if write_in_op not in my_visited_ops:
-                    assert write_in_op.parent in my_visited_ops
-                    my_visited_ops.add(write_in_op)
+                write_op = op._array.getWriteOp()
+                if write_op not in my_visited_ops:
+                    assert write_op.parent in my_visited_ops
+                    my_visited_ops.add(write_op)
+                if write_op not in visited_ops:
+                    assert write_op.parent in visited_ops
+                    visited_ops.add(write_op)
             # ----------------------------------------------------------------
             self.debugAssert(op.canVisit(my_visited_ops),
                              'Unable to visit op {}, visited_ops: {}'

@@ -42,9 +42,12 @@ class TensorArray:
         return array_valid
 
     def associateTensorArrayOp(self, array_op):
+        # Only one TensorArrayOp allowed per TensorArray
+        assert self._parent is None
         self._parent = array_op
 
     def associateWriteOp(self, write_op):
+        # Only one TensorArrayWriteOp allowed per TensorArray
         assert self._write_op is None
         self._write_op = write_op
 
@@ -52,6 +55,7 @@ class TensorArray:
         return self._write_op
 
     def associateGatherOp(self, gather_op):
+        # Only one TensorArrayGatherOp allowed per TensorArray
         assert self._gather_op is None
         self._gather_op = gather_op
 
@@ -65,9 +69,13 @@ class TensorArray:
             self._sequence_tensor = seq_tensor
 
     def associateFullTensor(self, full_tensor):
+        # Only one full tensor producer allowed per TensorArray
+        assert self._full_tensor is None
         self._full_tensor = full_tensor
 
     def associateElementTensor(self, element_tensor):
+        # Only one full tensor producer allowed per TensorArray
+        assert self._element_tensor is None
         self._element_tensor = element_tensor
 
     def getReadShape(self):
@@ -187,8 +195,8 @@ class TensorArrayGatherOp(BaseArrayOp):
     def canVisit(self, visited_ops):
         self.debugAssert(self._array is not None)
         self.debugAssert(self._array._element_tensor is not None)
-        write_in_op = self._array.getWriteOp().inputs[2].producer
-        if write_in_op not in visited_ops:
+        write_op = self._array.getWriteOp()
+        if write_op not in visited_ops:
             return False
         return super(TensorArrayGatherOp, self).canVisit(visited_ops)
 
