@@ -507,6 +507,8 @@ def construct_catamount_graph(tf_sess, tf_graph):
     op_inputs = {}
     ctrl_frames = {}
     all_stack_ops = []
+    ctrl_tensors = {}
+    op_ctrl_inputs = {}
     for tf_op in tf_graph._nodes_by_name.values():
         if tf_op.type in TF_OP_TO_CATAMOUNT.keys():
             # Map to Catamount op type
@@ -553,8 +555,8 @@ def construct_catamount_graph(tf_sess, tf_graph):
         # Track the input tensor names to connect them in next phase
         op_inputs[op.name] = []
         if tf_op.type == 'Split':
-            # TF Split op has different interface than Catamount. Need to add the
-            # size_splits tensor to match the Catamount interface (input[1])
+            # TF Split op has different interface than Catamount. Need to add
+            # the size_splits tensor to match Catamount interface (input[1])
             assert len(tf_op.inputs) == 2
             op_inputs[op.name].append(tf_op.inputs[1].name)
             # Signal to Catamount to use the num_split attribute by setting
@@ -567,6 +569,20 @@ def construct_catamount_graph(tf_sess, tf_graph):
         else:
             for i in range(len(tf_op.inputs)):
                 op_inputs[op.name].append(tf_op.inputs[i].name)
+
+        # Set up control output tensors for ops that need them
+        if len(tf_op._control_outputs) > 0:
+            out_tens = Tensor('{}:ct'.format(tf_op.name), TensorShape(None),
+                              DataType.control_phi)
+            ctrl_tensors[op.name] = out_tens
+            op.addControlOutput(out_tens)
+
+        # Track any control input tensor names to connect them in next phase
+        if len(tf_op.control_inputs) > 0:
+            op_ctrl_inputs[op.name] = []
+            for i in range(len(tf_op.control_inputs)):
+                # NOTE: Control inputs are op names rather than tensor names!
+                op_ctrl_inputs[op.name].append(tf_op.control_inputs[i].name)
 
         # Get the tf_op's attributes and set them as necessary
         parse_tf_op_attributes_into_op(tf_sess, tf_op, op)
@@ -588,6 +604,15 @@ def construct_catamount_graph(tf_sess, tf_graph):
             assert in_tensor in tensors.keys(), \
                    'Unknown input tensor {}'.format(in_tensor)
             graph.addInputToOp(op, tensors[in_tensor])
+
+    # Hook up any control inputs
+    for op_name in op_ctrl_inputs.keys():
+        op = graph.opsByName[op_name]
+        for in_op_name in op_ctrl_inputs[op_name]:
+            assert in_op_name in ctrl_tensors.keys(), \
+                   'Unknown control input op {}'.format(in_op_name)
+            in_op = graph.opsByName[in_op_name]
+            graph.addControlInputToOp(op, in_op)
 
     # Propagate stack pointers for StackOps. These ops always occur as a
     # series of ops. The StackOp is first, and propagates its outputs to

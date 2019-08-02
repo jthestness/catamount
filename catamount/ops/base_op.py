@@ -7,6 +7,8 @@ class Op:
         self._name = name
         self._inputs = []
         self._outputs = []
+        self._control_inputs = []
+        self._control_outputs = []
         self._parent = None
 
     def debugString(self):
@@ -15,6 +17,10 @@ class Op:
             to_return += '\n  In:  {}'.format(in_tensor)
         for out_tensor in self._outputs:
             to_return += '\n  Out: {}'.format(out_tensor)
+        for in_tensor in self._control_inputs:
+            to_return += '\n  Ctrl In:  {}'.format(in_tensor)
+        for out_tensor in self._control_outputs:
+            to_return += '\n  Ctrl Out: {}'.format(out_tensor)
         return to_return
 
     def notImplemented(self, string):
@@ -56,6 +62,10 @@ class Op:
         assert(isinstance(tensor, Tensor))
         self._inputs.append(tensor)
 
+    def addControlInput(self, tensor):
+        assert(isinstance(tensor, Tensor))
+        self._control_inputs.append(tensor)
+
     def resetInputs(self):
         # For each input tensor, remove op from consumers list
         for in_tensor in self._inputs:
@@ -65,6 +75,11 @@ class Op:
     def addOutput(self, tensor):
         assert(isinstance(tensor, Tensor))
         self._outputs.append(tensor)
+        tensor.setProducer(self)
+
+    def addControlOutput(self, tensor):
+        assert(isinstance(tensor, Tensor))
+        self._control_outputs.append(tensor)
         tensor.setProducer(self)
 
     def getFreeSymbols(self):
@@ -127,8 +142,16 @@ class Op:
         return self._inputs
 
     @property
+    def control_inputs(self):
+        return self._control_inputs
+
+    @property
     def outputs(self):
         return self._outputs
+
+    @property
+    def control_outputs(self):
+        return self._control_outputs
 
     @property
     def parent(self):
