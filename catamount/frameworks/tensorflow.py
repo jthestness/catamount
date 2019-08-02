@@ -570,13 +570,6 @@ def construct_catamount_graph(tf_sess, tf_graph):
             for i in range(len(tf_op.inputs)):
                 op_inputs[op.name].append(tf_op.inputs[i].name)
 
-        # Set up control output tensors for ops that need them
-        if len(tf_op._control_outputs) > 0:
-            out_tens = Tensor('{}:ct'.format(tf_op.name), TensorShape(None),
-                              DataType.control_phi)
-            ctrl_tensors[op.name] = out_tens
-            op.addControlOutput(out_tens)
-
         # Track any control input tensor names to connect them in next phase
         if len(tf_op.control_inputs) > 0:
             op_ctrl_inputs[op.name] = []
@@ -609,7 +602,7 @@ def construct_catamount_graph(tf_sess, tf_graph):
     for op_name in op_ctrl_inputs.keys():
         op = graph.opsByName[op_name]
         for in_op_name in op_ctrl_inputs[op_name]:
-            assert in_op_name in ctrl_tensors.keys(), \
+            assert in_op_name in graph.opsByName.keys(), \
                    'Unknown control input op {}'.format(in_op_name)
             in_op = graph.opsByName[in_op_name]
             graph.addControlInputToOp(op, in_op)

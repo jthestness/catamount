@@ -174,6 +174,8 @@ class SubgraphOp(Op):
     def addControlInputToOp(self, op, in_op):
         self.debugAssert(op.name in self._ops_by_name.keys(),
                          'Op not in graph: {}'.format(op.name))
+        if len(in_op.control_outputs) == 0:
+            in_op.constructControlOutput()
         ctrl_tensor = in_op.control_outputs[0]
         op.addControlInput(ctrl_tensor)
         ctrl_tensor.addConsumer(op)

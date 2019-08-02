@@ -77,10 +77,12 @@ class Op:
         self._outputs.append(tensor)
         tensor.setProducer(self)
 
-    def addControlOutput(self, tensor):
-        assert(isinstance(tensor, Tensor))
-        self._control_outputs.append(tensor)
-        tensor.setProducer(self)
+    def constructControlOutput(self):
+        self.debugAssert(len(self._control_outputs) == 0)
+        out_tens = Tensor('{}:ct'.format(self.name), TensorShape(None),
+                          DataType.control_phi)
+        self._control_outputs.append(out_tens)
+        out_tens.setProducer(self)
 
     def getFreeSymbols(self):
         to_return = set()
