@@ -30,6 +30,10 @@ class DataType(Enum):
     float32_ref = 26
     float64_ref = 27
 
+    # Type to track control dependencies. These are referred to as 'phi'
+    # nodes in dataflow graph terms... memorable
+    control_phi = 77
+
     def isNumber(type):
         return (type == DataType.bool) or \
                (type == DataType.int8) or \
@@ -61,6 +65,7 @@ class DataType(Enum):
                    DataType.float16: 2,
                    DataType.float32: 4,
                    DataType.float64: 8,
+                   DataType.control_phi: 0,
                  }
         return sizeof[type]
 

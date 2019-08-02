@@ -171,6 +171,14 @@ class SubgraphOp(Op):
             self.debugAssert(self._sinks[producer_op.name] == producer_op)
             self._sinks.pop(producer_op.name)
 
+    def addControlInputToOp(self, op, in_op):
+        self.debugAssert(op.name in self._ops_by_name.keys(),
+                         'Op not in graph: {}'.format(op.name))
+        ctrl_tensor = in_op.control_outputs[0]
+        op.addControlInput(ctrl_tensor)
+        ctrl_tensor.addConsumer(op)
+        # TODO(joel): To enforce these correctly, need to update sources/sinks
+
     def removeOp(self, op):
         # Remove op from _ops_by_name
         self._ops_by_name.pop(op.name, None)
